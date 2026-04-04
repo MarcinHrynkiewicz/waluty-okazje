@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Waluty Okazje – Monitor kursów NBP</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --accent: #1a73e8;
+      --accent-light: #e8f0fe;
+      --green: #1e8e3e;
+      --red: #d93025;
+    }
+    body { background: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
+    .navbar { background: var(--accent) !important; }
+    .navbar-brand { font-weight: 700; font-size: 1.3rem; color: #fff !important; }
+    .card { border: none; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.12); }
+    .rate-card { cursor: pointer; transition: transform .15s; }
+    .rate-card:hover { transform: translateY(-3px); }
+    .rate-card.active-card { border: 2px solid var(--accent); }
+    .rate-value { font-size: 1.8rem; font-weight: 700; color: var(--accent); }
+    .badge-up { background: #e6f4ea; color: var(--green); }
+    .badge-dn { background: #fce8e6; color: var(--red); }
+    .section-title { font-weight: 600; font-size: 1.05rem; color: #444; margin-bottom: 1rem; }
+    .alert-row td { vertical-align: middle; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .dot-green { background: var(--green); }
+    .dot-grey  { background: #bbb; }
+    #refreshBtn { cursor: pointer; }
+    .spinner-sm { width: 1rem; height: 1rem; }
+    .source-badge { font-size: .7rem; background: var(--accent-light); color: var(--accent);
+                    padding: 2px 7px; border-radius: 20px; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark mb-4">
+  <div class="container-fluid">
+    <span class="navbar-brand"><i class="bi bi-currency-exchange me-2"></i>Waluty Okazje</span>
+    <div class="d-flex align-items-center gap-3">
+      <span class="text-white-50 small" id="lastUpdate">–</span>
+      <button class="btn btn-sm btn-outline-light" id="refreshBtn" onclick="checkNow()">
+        <i class="bi bi-arrow-clockwise"></i> Sprawdź teraz
+      </button>
+      <button class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#settingsModal">
+        <i class="bi bi-gear"></i>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid px-4">
+
+  <!-- Rate cards -->
+  <div class="row g-3 mb-4" id="rateCards"></div>
+
+  <!-- Chart -->
+  <div class="row g-3 mb-4">
+    <div class="col-12">
+      <div class="card p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="section-title mb-0"><i class="bi bi-graph-up me-1"></i>Historia kursu: <span id="chartCurrency">–</span></span>
+          <select class="form-select form-select-sm w-auto" id="chartHours" onchange="loadChart()">
+            <option value="24">24 godz.</option>
+            <option value="48" selected>48 godz.</option>
+            <option value="168">7 dni</option>
+            <option value="720">30 dni</option>
+          </select>
+        </div>
+        <canvas id="rateChart" height="90"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts table + form -->
+  <div class="row g-3 mb-4">
+    <div class="col-lg-8">
+      <div class="card p-3">
+        <div class="section-title"><i class="bi bi-bell me-1"></i>Aktywne alerty</div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Status</th><th>Waluta</th><th>Warunek</th><th>Email</th>
+                <th>Ostatni alert</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="alertsTable">
+              <tr><td colspan="6" class="text-center text-muted py-3">Ładowanie…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card p-3">
+        <div class="section-title"><i class="bi bi-plus-circle me-1"></i>Nowy alert</div>
+        <form id="alertForm" onsubmit="createAlert(event)">
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Waluta</label>
+            <select class="form-select form-select-sm" id="alertCurrency">
+              {% for c in supported %}
+              <option value="{{ c }}">{{ c }} / PLN</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Warunek</label>
+            <select class="form-select form-select-sm" id="alertDirection">
+              <option value="below">Kurs SPADA poniżej progu</option>
+              <option value="above">Kurs ROŚNIE powyżej progu</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Próg (PLN)</label>
+            <input type="number" step="0.0001" min="0" class="form-control form-control-sm"
+                   id="alertThreshold" placeholder="np. 4.2500" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Email</label>
+            <input type="email" class="form-control form-control-sm"
+                   id="alertEmail" placeholder="twoj@email.com" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm w-100">
+            <i class="bi bi-bell-fill me-1"></i>Dodaj alert
+          </button>
+        </form>
+        <div id="alertFormMsg" class="mt-2"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Settings modal -->
+<div class="modal fade" id="settingsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-gear me-2"></i>Ustawienia</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="settingsForm" onsubmit="saveSettings(event)">
+          <h6 class="fw-semibold mb-3">Email (SMTP)</h6>
+          <div class="row g-2 mb-3">
+            <div class="col-md-8">
+              <label class="form-label small">Serwer SMTP</label>
+              <input type="text" class="form-control form-control-sm" id="smtp_host"
+                     placeholder="smtp.gmail.com">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">Port</label>
+              <input type="number" class="form-control form-control-sm" id="smtp_port"
+                     placeholder="587">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Login (email nadawcy)</label>
+              <input type="email" class="form-control form-control-sm" id="smtp_user"
+                     placeholder="nadawca@gmail.com">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Hasło (App Password)</label>
+              <input type="password" class="form-control form-control-sm" id="smtp_pass"
+                     placeholder="••••••••">
+            </div>
+          </div>
+
+          <h6 class="fw-semibold mb-3">Harmonogram</h6>
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label small">Sprawdzaj co (minuty)</label>
+              <input type="number" min="1" max="1440" class="form-control form-control-sm"
+                     id="check_interval_minutes" placeholder="30">
+            </div>
+          </div>
+
+          <h6 class="fw-semibold mb-3">Śledzone waluty</h6>
+          <div class="row g-2 mb-1" id="currencyToggles"></div>
+          <small class="text-muted">Zaznaczone waluty będą pobierane i wyświetlane.</small>
+
+          <div class="mt-3" id="settingsSaveMsg"></div>
+          <button type="submit" class="btn btn-primary mt-3">
+            <i class="bi bi-save me-1"></i>Zapisz ustawienia
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const SUPPORTED = {{ supported | tojson }};
+let currentCurrency = null;
+let rateChart = null;
+
+// ---- Init ----------------------------------------------------------------
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadSettings().then(() => {
+    loadRates();
+    loadAlerts();
+  });
+  setInterval(() => { loadRates(); loadAlerts(); }, 60_000);
+});
+
+// ---- Rates ---------------------------------------------------------------
+
+async function loadRates() {
+  const res = await fetch('/api/rates/current?currencies=' + SUPPORTED.join(','));
+  const data = await res.json();
+
+  const container = document.getElementById('rateCards');
+  if (Object.keys(data).length === 0) {
+    container.innerHTML = '<div class="col-12 text-muted">Brak danych — kliknij "Sprawdź teraz"</div>';
+    return;
+  }
+
+  let html = '';
+  let latestTime = null;
+  for (const [cur, info] of Object.entries(data)) {
+    if (!latestTime || info.fetched_at > latestTime) latestTime = info.fetched_at;
+    const isActive = cur === currentCurrency ? 'active-card' : '';
+    html += `
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="card rate-card p-3 text-center ${isActive}" onclick="selectCurrency('${cur}')">
+          <div class="fw-bold text-muted small mb-1">${cur} / PLN</div>
+          <div class="rate-value">${info.rate.toFixed(4)}</div>
+          <div class="mt-1"><span class="source-badge">NBP</span></div>
+        </div>
+      </div>`;
+  }
+  container.innerHTML = html;
+
+  if (latestTime) {
+    const dt = new Date(latestTime + 'Z');
+    document.getElementById('lastUpdate').textContent =
+      'Aktualizacja: ' + dt.toLocaleTimeString('pl-PL');
+  }
+
+  if (!currentCurrency && Object.keys(data).length > 0) {
+    selectCurrency(Object.keys(data)[0]);
+  }
+}
+
+function selectCurrency(cur) {
+  currentCurrency = cur;
+  document.getElementById('chartCurrency').textContent = cur + ' / PLN';
+  // re-highlight cards
+  document.querySelectorAll('.rate-card').forEach(c => {
+    c.classList.toggle('active-card', c.querySelector('.fw-bold').textContent.startsWith(cur));
+  });
+  loadChart();
+}
+
+// ---- Chart ---------------------------------------------------------------
+
+async function loadChart() {
+  if (!currentCurrency) return;
+  const hours = document.getElementById('chartHours').value;
+  const res = await fetch(`/api/rates/history?currency=${currentCurrency}&hours=${hours}`);
+  const data = await res.json();
+
+  const labels = data.map(d => {
+    const dt = new Date(d.fetched_at + 'Z');
+    return dt.toLocaleString('pl-PL', { month: 'short', day: 'numeric',
+                                        hour: '2-digit', minute: '2-digit' });
+  });
+  const values = data.map(d => d.rate);
+
+  const ctx = document.getElementById('rateChart').getContext('2d');
+  if (rateChart) rateChart.destroy();
+
+  rateChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: currentCurrency + ' / PLN',
+        data: values,
+        borderColor: '#1a73e8',
+        backgroundColor: 'rgba(26,115,232,.08)',
+        borderWidth: 2,
+        pointRadius: data.length < 60 ? 3 : 0,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 10, maxRotation: 0 } },
+        y: { ticks: { callback: v => v.toFixed(4) } }
+      }
+    }
+  });
+}
+
+// ---- Alerts --------------------------------------------------------------
+
+async function loadAlerts() {
+  const res = await fetch('/api/alerts');
+  const data = await res.json();
+  const tbody = document.getElementById('alertsTable');
+
+  if (data.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Brak alertów</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.map(a => {
+    const dot = a.active
+      ? '<span class="dot dot-green me-1"></span> Aktywny'
+      : '<span class="dot dot-grey me-1"></span> Wstrzymany';
+    const dir = a.direction === 'below'
+      ? '<span class="badge bg-info text-dark">↓ poniżej</span>'
+      : '<span class="badge bg-warning text-dark">↑ powyżej</span>';
+    const trig = a.last_triggered
+      ? new Date(a.last_triggered + 'Z').toLocaleString('pl-PL')
+      : '—';
+    return `
+      <tr class="alert-row">
+        <td>${dot}</td>
+        <td><strong>${a.currency}</strong></td>
+        <td>${dir} ${a.threshold.toFixed(4)} PLN</td>
+        <td class="text-truncate" style="max-width:160px">${a.email}</td>
+        <td class="small text-muted">${trig}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-secondary me-1" title="${a.active ? 'Wstrzymaj' : 'Wznów'}"
+                  onclick="toggleAlert(${a.id})">
+            <i class="bi bi-${a.active ? 'pause' : 'play'}"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" title="Usuń" onclick="deleteAlert(${a.id})">
+            <i class="bi bi-trash"></i>
+          </button>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+async function createAlert(e) {
+  e.preventDefault();
+  const msg = document.getElementById('alertFormMsg');
+  const body = {
+    currency: document.getElementById('alertCurrency').value,
+    direction: document.getElementById('alertDirection').value,
+    threshold: parseFloat(document.getElementById('alertThreshold').value),
+    email: document.getElementById('alertEmail').value
+  };
+  const res = await fetch('/api/alerts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (res.ok) {
+    msg.innerHTML = '<div class="alert alert-success py-1 small">Alert dodany!</div>';
+    document.getElementById('alertForm').reset();
+    loadAlerts();
+  } else {
+    msg.innerHTML = `<div class="alert alert-danger py-1 small">${data.error}</div>`;
+  }
+  setTimeout(() => { msg.innerHTML = ''; }, 3000);
+}
+
+async function deleteAlert(id) {
+  if (!confirm('Usunąć alert?')) return;
+  await fetch(`/api/alerts/${id}`, { method: 'DELETE' });
+  loadAlerts();
+}
+
+async function toggleAlert(id) {
+  await fetch(`/api/alerts/${id}/toggle`, { method: 'POST' });
+  loadAlerts();
+}
+
+// ---- Settings ------------------------------------------------------------
+
+async function loadSettings() {
+  const res = await fetch('/api/settings');
+  const data = await res.json();
+
+  ['smtp_host', 'smtp_port', 'smtp_user', 'check_interval_minutes'].forEach(k => {
+    const el = document.getElementById(k);
+    if (el && data[k]) el.value = data[k];
+  });
+
+  const tracked = (data.tracked_currencies || '').split(',').map(s => s.trim());
+  const container = document.getElementById('currencyToggles');
+  container.innerHTML = SUPPORTED.map(c => `
+    <div class="col-auto">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="chk_${c}" value="${c}"
+               ${tracked.includes(c) ? 'checked' : ''}>
+        <label class="form-check-label small" for="chk_${c}">${c}</label>
+      </div>
+    </div>`).join('');
+}
+
+async function saveSettings(e) {
+  e.preventDefault();
+  const msg = document.getElementById('settingsSaveMsg');
+
+  const checked = [...document.querySelectorAll('#currencyToggles input:checked')]
+    .map(el => el.value).join(',');
+
+  const body = {
+    smtp_host: document.getElementById('smtp_host').value,
+    smtp_port: document.getElementById('smtp_port').value,
+    smtp_user: document.getElementById('smtp_user').value,
+    smtp_pass: document.getElementById('smtp_pass').value,
+    check_interval_minutes: document.getElementById('check_interval_minutes').value,
+    tracked_currencies: checked
+  };
+  // Remove empty smtp_pass to avoid overwriting saved value
+  if (!body.smtp_pass) delete body.smtp_pass;
+
+  const res = await fetch('/api/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  msg.innerHTML = res.ok
+    ? '<div class="alert alert-success py-1 small">Zapisano!</div>'
+    : `<div class="alert alert-danger py-1 small">${data.error}</div>`;
+  setTimeout(() => { msg.innerHTML = ''; }, 3000);
+}
+
+// ---- Check now -----------------------------------------------------------
+
+async function checkNow() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-sm"></span> Sprawdzam…';
+  await fetch('/api/check_now', { method: 'POST' });
+  await loadRates();
+  await loadAlerts();
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Sprawdź teraz';
+}
+</script>
+</body>
+</html>

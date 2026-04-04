@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: waluty-okazje
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers=1 --bind=0.0.0.0:$PORT --timeout=120
+    plan: free
+    envVars:
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+
+  # Cron job budzi aplikację i wymusza sprawdzenie kursów co 30 minut.
+  # Dzięki temu scheduler działa nawet gdy Render uśpi web service (free tier).
+  - type: cron
+    name: waluty-okazje-checker
+    runtime: python
+    schedule: "*/30 * * * *"
+    buildCommand: pip install requests
+    startCommand: >
+      python -c "
+      import requests, os, sys;
+      url = os.environ.get('APP_URL','');
+      r = requests.post(url + '/api/check_now', timeout=30);
+      print(r.status_code, r.text);
+      sys.exit(0 if r.ok else 1)
+      "
+    envVars:
+      - key: APP_URL
+        value: "https://waluty-okazje.onrender.com"
