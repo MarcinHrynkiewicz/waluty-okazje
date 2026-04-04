@@ -304,9 +304,9 @@ def init_app():
             set_setting("check_interval_minutes", "30")
         if not get_setting("smtp_port"):
             set_setting("smtp_port", "587")
+        interval = int(get_setting("check_interval_minutes") or 30)
 
     if not scheduler.running:
-        interval = int(get_setting("check_interval_minutes") or 30)
         scheduler.add_job(check_rates, "interval", minutes=interval, id="check_rates",
                           next_run_time=datetime.now())
         scheduler.start()
