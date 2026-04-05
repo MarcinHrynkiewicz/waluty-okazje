@@ -198,6 +198,7 @@
 const SUPPORTED = {{ supported | tojson }};
 let currentCurrency = null;
 let rateChart = null;
+let trackedCurrencies = SUPPORTED.slice(0, 4);
 
 // ---- Init ----------------------------------------------------------------
 
@@ -212,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ---- Rates ---------------------------------------------------------------
 
 async function loadRates() {
-  const res = await fetch('/api/rates/current?currencies=' + SUPPORTED.join(','));
+  const res = await fetch('/api/rates/current?currencies=' + trackedCurrencies.join(','));
   const data = await res.json();
 
   const container = document.getElementById('rateCards');
@@ -390,7 +391,8 @@ async function loadSettings() {
     if (el && data[k]) el.value = data[k];
   });
 
-  const tracked = (data.tracked_currencies || '').split(',').map(s => s.trim());
+  const tracked = (data.tracked_currencies || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (tracked.length > 0) trackedCurrencies = tracked;
   const container = document.getElementById('currencyToggles');
   container.innerHTML = SUPPORTED.map(c => `
     <div class="col-auto">
