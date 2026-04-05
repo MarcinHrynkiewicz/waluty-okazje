@@ -17,7 +17,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///waluty.db"
+
+_DB_URL = os.environ.get("DATABASE_URL", "")
+# Render zwraca URL z prefiksem "postgres://", SQLAlchemy wymaga "postgresql://"
+if _DB_URL.startswith("postgres://"):
+    _DB_URL = _DB_URL.replace("postgres://", "postgresql://", 1)
+if not _DB_URL:
+    # fallback lokalny (SQLite)
+    _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    _DB_URL = f"sqlite:///{os.path.join(_BASE_DIR, 'waluty.db')}"
+app.config["SQLALCHEMY_DATABASE_URI"] = _DB_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
