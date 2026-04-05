@@ -291,6 +291,11 @@ def api_save_settings():
     return jsonify({"message": "Ustawienia zapisane"})
 
 
+@app.route("/ping")
+def ping():
+    return "ok", 200
+
+
 @app.route("/api/check_now", methods=["POST"])
 def api_check_now():
     check_rates()
@@ -310,7 +315,7 @@ def init_app():
         if not get_setting("tracked_currencies"):
             set_setting("tracked_currencies", "USD,EUR,GBP,CHF")
         if not get_setting("check_interval_minutes"):
-            set_setting("check_interval_minutes", "30")
+            set_setting("check_interval_minutes", "60")
         if not get_setting("smtp_port"):
             set_setting("smtp_port", "587")
         interval = int(get_setting("check_interval_minutes") or 30)
